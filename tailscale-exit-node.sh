@@ -19,13 +19,20 @@ echo "[+] Initial Memory Baseline:"
 free -m
 echo ""
 
-# 3. Check TUN/TAP device accessibility
+# 3. Check / create TUN device
+mkdir -p /dev/net
+if [ ! -c /dev/net/tun ]; then
+  mknod /dev/net/tun c 10 200
+  chmod 600 /dev/net/tun
+fi
+
 echo "[+] Checking TUN/TAP device..."
-if ! cat /dev/net/tun 2>&1 | grep -q "File descriptor in bad state"; then
-  echo "[-] WARNING: /dev/net/tun is unavailable or misconfigured."
-  echo "    On OpenVZ/container VPS, enable TUN/TAP in your provider panel and reboot."
+TUN_TEST=$(cat /dev/net/tun 2>&1 || true)
+if [[ "$TUN_TEST" != *"File descriptor in bad state"* ]]; then
+  echo "[-] WARNING: TUN/TAP is unavailable: $TUN_TEST"
   exit 1
 fi
+echo "[+] TUN/TAP verified."
 
 # 4. Low-RAM Daemon Cleanup (Reclaim Memory Early)
 echo "[+] Stopping non-essential services to conserve RAM..."
