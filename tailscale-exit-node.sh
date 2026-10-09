@@ -5,7 +5,7 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
 echo "=============================================="
-echo " Starting Low-RAM Debian 12 Tailscale Setup  "
+echo " Starting Low-RAM Debian 12 Tailscale Setup   "
 echo "=============================================="
 
 # 1. Verify Root
@@ -14,7 +14,12 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Check TUN/TAP device accessibility
+# 2. Baseline Memory Inspection
+echo "[+] Initial Memory Baseline:"
+free -m
+echo ""
+
+# 3. Check TUN/TAP device accessibility
 echo "[+] Checking TUN/TAP device..."
 if ! cat /dev/net/tun 2>&1 | grep -q "File descriptor in bad state"; then
   echo "[-] WARNING: /dev/net/tun is unavailable or misconfigured."
@@ -22,12 +27,17 @@ if ! cat /dev/net/tun 2>&1 | grep -q "File descriptor in bad state"; then
   exit 1
 fi
 
-# 3. Update & Upgrade Minimal Packages
+# 4. Low-RAM Daemon Cleanup (Reclaim Memory Early)
+echo "[+] Stopping non-essential services to conserve RAM..."
+systemctl stop rsyslog cron 2>/dev/null || true
+systemctl disable rsyslog cron 2>/dev/null || true
+
+# 5. Update & Upgrade Minimal Packages
 echo "[+] Updating apt repositories and packages..."
 apt-get update -y
 apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 
-# 4. Install Bare Minimum Dependencies
+# 6. Install Bare Minimum Dependencies
 echo "[+] Installing essential networking tools..."
 apt-get install -y --no-install-recommends \
   curl \
@@ -35,12 +45,7 @@ apt-get install -y --no-install-recommends \
   iptables \
   iptables-persistent
 
-# 5. Low-RAM Daemon Cleanup (Save Memory)
-echo "[+] Disabling non-essential services to conserve RAM..."
-systemctl stop rsyslog cron 2>/dev/null || true
-systemctl disable rsyslog cron 2>/dev/null || true
-
-# 6. Enable Kernel IP Packet Forwarding
+# 7. Enable Kernel IP Packet Forwarding
 echo "[+] Configuring IP forwarding sysctl..."
 cat <<'EOF' > /etc/sysctl.d/99-tailscale.conf
 net.ipv4.ip_forward = 1
@@ -48,7 +53,7 @@ net.ipv6.conf.all.forwarding = 1
 EOF
 sysctl -p /etc/sysctl.d/99-tailscale.conf >/dev/null
 
-# 7. Configure Dynamic NAT Masquerading
+# 8. Configure Dynamic NAT Masquerading
 echo "[+] Detecting primary egress interface..."
 PRIMARY_IFACE=$(ip route show default | awk '{print $5}' | head -n1)
 if [ -z "$PRIMARY_IFACE" ]; then
@@ -69,24 +74,26 @@ fi
 # Save iptables rules across reboots
 netfilter-persistent save
 
-# 8. Install Tailscale
+# 9. Install Tailscale
 echo "[+] Installing Tailscale..."
 if ! command -v tailscale &>/dev/null; then
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
 
-# 9. Clean Package Cache Immediately
+# 10. Aggressive Clean-up Before Launch
 apt-get autoremove --purge -y
 apt-get clean
 rm -rf /var/lib/apt/lists/*
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 
-# 10. Memory Diagnostics
+# 11. Memory Diagnostic Before Launch
 echo "----------------------------------------------"
-echo " Memory status prior to Tailscale start:     "
+echo " RAM available prior to starting Tailscale:  "
 free -m
 echo "----------------------------------------------"
 
-# 11. Tailscale Initialization
+# 12. Tailscale Initialization
 echo ""
 echo "[?] If you have an Auth Key, paste it below."
 echo "    Press [ENTER] without typing anything to authenticate via Web URL:"
@@ -98,15 +105,22 @@ if [ -n "$AUTH_KEY" ]; then
   echo "[+] Bringing up Tailscale using Auth Key..."
   tailscale up ${TAILSCALE_OPTS} --authkey="${AUTH_KEY}"
 else
-  echo "[+] Bringing up Tailscale (click the URL that appears below):"
+  echo "[+] Bringing up Tailscale (open the URL below to authenticate):"
   tailscale up ${TAILSCALE_OPTS}
 fi
+
+# 13. Final Memory Verification
+echo ""
+echo "----------------------------------------------"
+echo " Final RAM status with Tailscale active:     "
+free -m
+echo "----------------------------------------------"
 
 echo ""
 echo "=============================================="
 echo " Setup Complete!                              "
 echo "=============================================="
 echo "1. Go to: https://login.tailscale.com/admin/machines"
-echo "2. Find this machine -> Click '...' -> 'Edit route settings...'"
+echo "2. Find this node -> Click '...' -> 'Edit route settings...'"
 echo "3. Check 'Use as exit node' -> Click 'Save'."
 echo "=============================================="
