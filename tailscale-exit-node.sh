@@ -35,8 +35,8 @@ if [[ "$TUN_STATUS" != *"File descriptor in bad state"* ]]; then
 fi
 echo "[+] TUN/TAP verified successfully."
 
-# 4. Low-RAM OpenVZ Tweaks: Disable man-db triggers & clean bad repos
-echo "[+] Disabling man-db triggers to prevent fork exhaustion..."
+# 4. Low-RAM OpenVZ Tweaks: Memory limits, doc exclusions, and repo trimming
+echo "[+] Configuring APT memory constraints & disabling documentation..."
 cat <<'EOF' > /etc/dpkg/dpkg.cfg.d/01_nodoc
 path-exclude /usr/share/doc/*
 path-exclude /usr/share/man/*
@@ -45,19 +45,30 @@ path-exclude /usr/share/info/*
 EOF
 rm -f /var/lib/man-db/auto-update 2>/dev/null || true
 
-# Remove dead Virtuozzo ctpreset list if present
+# Restrict APT cache buffer size to fit in 128MB
+cat <<'EOF' > /etc/apt/apt.conf.d/99lowmem
+APT::Cache-Limit "25165824";
+Acquire::Languages "none";
+Acquire::GzipIndexes "true";
+EOF
+
+# Strip dead Virtuozzo repository from sources.list and sources.list.d
+sed -i '/virtuozzo\.com/d' /etc/apt/sources.list 2>/dev/null || true
 rm -f /etc/apt/sources.list.d/*virtuozzo* 2>/dev/null || true
 
-# Stop non-essential services to free RAM
+# Purge leftover apt lists and reclaim RAM
+rm -rf /var/lib/apt/lists/*
+sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
+# Stop non-essential services to maximize free RAM
 echo "[+] Stopping non-essential services to conserve RAM..."
 systemctl stop rsyslog cron 2>/dev/null || true
 systemctl disable rsyslog cron 2>/dev/null || true
 
 # 5. Update & Upgrade Minimal Packages
 echo "[+] Updating apt repositories and packages..."
-apt-get update -y
+apt-get update -o Acquire::Languages=none
 apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
-
 # 6. Install Essential Networking Tools (skipping doc rebuilds)
 echo "[+] Installing essential networking tools..."
 apt-get install -y --no-install-recommends \
