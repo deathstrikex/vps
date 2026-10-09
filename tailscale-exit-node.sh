@@ -19,22 +19,23 @@ echo "[+] Initial Memory Baseline:"
 free -m
 echo ""
 
-# 3. Check / create TUN device
+# 3. Create & Verify TUN/TAP Device Node
+echo "[+] Checking and preparing TUN/TAP device..."
 mkdir -p /dev/net
 if [ ! -c /dev/net/tun ]; then
   mknod /dev/net/tun c 10 200
   chmod 600 /dev/net/tun
 fi
 
-echo "[+] Checking TUN/TAP device..."
-TUN_TEST=$(cat /dev/net/tun 2>&1 || true)
-if [[ "$TUN_TEST" != *"File descriptor in bad state"* ]]; then
-  echo "[-] WARNING: TUN/TAP is unavailable: $TUN_TEST"
+TUN_STATUS=$(cat /dev/net/tun 2>&1 || true)
+if [[ "$TUN_STATUS" != *"File descriptor in bad state"* ]]; then
+  echo "[-] WARNING: TUN/TAP is unavailable: $TUN_STATUS"
+  echo "    On OpenVZ/container VPS, enable TUN/TAP in your provider panel and reboot."
   exit 1
 fi
-echo "[+] TUN/TAP verified."
+echo "[+] TUN/TAP verified successfully."
 
-# 4. Low-RAM Daemon Cleanup (Reclaim Memory Early)
+# 4. Low-RAM Daemon Cleanup (Save Memory)
 echo "[+] Stopping non-essential services to conserve RAM..."
 systemctl stop rsyslog cron 2>/dev/null || true
 systemctl disable rsyslog cron 2>/dev/null || true
@@ -44,7 +45,7 @@ echo "[+] Updating apt repositories and packages..."
 apt-get update -y
 apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 
-# 6. Install Bare Minimum Dependencies
+# 6. Install Essential Networking Tools
 echo "[+] Installing essential networking tools..."
 apt-get install -y --no-install-recommends \
   curl \
